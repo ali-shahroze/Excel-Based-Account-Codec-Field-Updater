@@ -1,0 +1,97 @@
+public class AccountUpdateFromExcelConditionsSheet {
+
+    public static void updateAccounts(String fileId) {
+        String fileContent = '';
+
+        try {
+            // Retrieve the ContentVersion record associated with the file
+            ContentVersion contentVersion = [SELECT VersionData FROM ContentVersion WHERE ContentDocumentId = :fileId LIMIT 1];
+
+            // Check if ContentVersion record exists
+            if (contentVersion != null && contentVersion.VersionData != null) {
+                // Convert VersionData Blob to String
+                fileContent = contentVersion.VersionData.toString().replace(',,', ',null,');
+
+                // Debug log file content
+                System.debug('fileContent: ' + fileContent);
+
+                // Split file content into lines
+                List<String> lines = fileContent.split('\n');
+
+                // Retrieve all accounts with required fields populated
+                List<Account> allAccounts = [SELECT Id, Test_Answer_1__c, Test_Answer_2__c, Test_Answer_3__c, Codec__c 
+                                              FROM Account ];
+
+                if (allAccounts.isEmpty()) {
+                    System.debug('No accounts found.');
+                    return;
+                }
+
+                // Map to store accounts by field values
+                Map<String, List<Account>> accountMap = new Map<String, List<Account>>();
+
+                // Iterate over all accounts and organize them by field values
+                for (Account account : allAccounts) {
+                    String key = account.Test_Answer_1__c + '|' + account.Test_Answer_2__c + '|' + account.Test_Answer_3__c;
+                    system.debug('Account v  ::  '+key);
+                    // Check if the key already exists in the map
+                    if (!accountMap.containsKey(key)) {
+                        // If not, create a new list and add the account to it
+                        accountMap.put(key, new List<Account>{account});
+                    } else {
+                        // If yes, add the account to the existing list
+                        accountMap.get(key).add(account);
+                    }
+                }
+
+                List<Account> allUpdatedAccounts = new List<Account>(); 
+
+                // Iterate over the lines to process each set of field values
+                for (Integer i = 1; i < lines.size(); i++) {
+                    String line = lines[i];
+                    List<String> values = line.split(',');
+
+                    // Check if the line contains all required values
+                    if (values.size() != 4) {
+                        System.debug('Invalid input format at line ' + i + ': ' + line);
+                        continue; // Skip to the next line
+                    }
+
+                    // Extract field values
+                    String testAnswer1 = values[0];
+                    String testAnswer2 = values[1];
+                    String testAnswer3 = values[2];
+                    String codecValue = values[3];
+
+                    // Construct key for the account map
+                    String key = testAnswer1 + '|' + testAnswer2 + '|' + testAnswer3;
+
+                    // Retrieve accounts from the map
+                    List<Account> accountsToUpdate = accountMap.get(key);
+
+                    if (accountsToUpdate != null) {
+                        // Update Codec field for each account
+                        for (Account accountToUpdate : accountsToUpdate) {
+                            accountToUpdate.Codec__c = codecValue;
+                            // Add the new Account record to the list
+                            allUpdatedAccounts.add(accountToUpdate);
+                        }
+                    } else {
+                        System.debug('No accounts found for key: ' + key);
+                    }
+                }
+
+                // Commit the updates
+                try {
+                    update allUpdatedAccounts;
+                } catch (Exception e) {
+                    System.debug('An error occurred while updating accounts: ' + e.getMessage());
+                }
+            } else {
+                System.debug('ContentVersion record not found for fileId: ' + fileId);
+            }
+        } catch (Exception e) {
+            System.debug('An error occurred: ' + e.getMessage());
+        }
+    }
+}
